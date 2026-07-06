@@ -41,6 +41,8 @@ _DEFAULT_PREMIUM_EMOJI_MAP = {
     "💲": 5353055510394329201,
     "🧾": 5444856076954520455,
     "👤": 5904630315946611415,
+    "👋": 6008263495932448198,
+    "👇": 5877377485733105077,
 }
 try:
     PREMIUM_EMOJI_MAP = dict(_DEFAULT_PREMIUM_EMOJI_MAP)
@@ -3621,10 +3623,11 @@ def deposit_amount_buttons():
 
 
 def build_home_text(balance_usd: float, balance_inr: float = 0.0) -> str:
-    # Home screen is buttons-only. Telegram/Telethon reject a truly empty message
-    # (and strip invisible chars like U+200B / U+2800 → MessageEmptyError), so use
-    # the smallest possible visible text: a single pointer to the buttons below.
-    return "Pick Any Action From Below."
+    return (
+        "👋 Welcome to Hidden Marketplace !\n\n"
+        "Everything you need in one marketplace, with secure payments and fast delivery.\n\n"
+        "Browse using the options below👇"
+    )
 
 
 def build_balance_text(balance_usd: float, balance_inr: float = 0.0) -> str:
