@@ -3687,9 +3687,9 @@ def deposit_amount_buttons():
 
 def build_home_text(balance_usd: float, balance_inr: float = 0.0) -> str:
     return (
-        "👋 Welcome to Hidden Marketplace !\n\n"
-        "Everything you need in one marketplace, with secure payments and fast delivery.\n\n"
-        "Browse using the options below👇"
+        "<b>👋 Welcome to Hidden Marketplace !\n\n"
+        "<b>Everything you need in one marketplace, with secure payments and fast delivery.\n\n"
+        "<b>Browse using the options below👇</b>"
     )
 
 
