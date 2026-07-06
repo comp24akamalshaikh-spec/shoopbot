@@ -1219,6 +1219,69 @@ async def get_order(order_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+async def build_user_order_view(order_id: int, user_id: int):
+    """(text, button_rows) for a buyer's single-order detail screen.
+
+    Returns None if the order doesn't exist or isn't owned by this user."""
+    o = await get_order(order_id)
+    if not o or o["user_id"] != user_id:
+        return None
+    sym = "$" if o["currency"] == "usd" else "₹"
+    ts = (o["created_at"] or "")[:16].replace("T", " ")
+    name = o.get("product_name") or "(removed product)"
+    status = o["status"]
+    is_manual = (o.get("fulfillment") or "instant") == "manual"
+    if status == "refunded":
+        state = "↩️ Refunded to your balance"
+    elif is_manual:
+        state = {
+            "awaiting_email": "✉️ Waiting for your email",
+            "processing": "🕐 Preparing your invite (within 1h)",
+            "delivered": "📬 Invite sent — check your email",
+            "completed": "✅ Received",
+        }.get(status, "🕐 Processing")
+    else:
+        state = "✅ Delivered"
+    text = (
+        f"🧾  Order #{o['id']}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📦 {name}\n"
+        f"💵 Paid: {sym}{o['amount']:.2f}\n"
+        f"📅 {ts}\n"
+        f"📌 {state}\n"
+    )
+    rows = []
+    if is_manual:
+        if o.get("email"):
+            text += f"\n📧 Email: `{o.get('email')}`\n"
+        if status == "delivered":
+            text += "\nReceived your invite? Let us know below."
+            rows.append(
+                [
+                    Button.inline("✅ Got it!", f"ogot:{order_id}".encode()),
+                    Button.inline("🆘 Help", f"osupport:{order_id}".encode()),
+                ]
+            )
+        elif status == "processing":
+            text += (
+                "\nYour invite is on its way to the email above — "
+                "usually a few minutes (up to 1h)."
+            )
+        elif status == "awaiting_email":
+            text += "\nWe still need your email to send the invite."
+    elif status == "refunded":
+        text += "\nThis item was refunded, so it's no longer active."
+    else:
+        text += (
+            "\n🎁 Your item:\n"
+            f"`{o.get('content') or '(unavailable)'}`\n\n"
+            "Tap the text above to copy it."
+        )
+    rows.append([Button.inline("🧾 All Orders", b"orders")])
+    rows.append([btn_back()])
+    return text, rows
+
+
 async def refund_order(order_id: int) -> tuple[str, object]:
     """Atomically refund an order's exact amount+currency to the buyer's balance.
 
@@ -4387,51 +4450,47 @@ async def on_callback(event):
             await show(
                 "🧾  My Orders\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
-                "You haven't bought anything yet.",
+                "You haven't bought anything yet.\n"
+                "Browse the shop to grab your first item! 🛍",
                 [
                     [btn_shop()],
                     [btn_back()],
                 ],
             )
         else:
-            lines = ["🧾  My Orders", "━━━━━━━━━━━━━━━━━━━━", ""]
+
+            def _order_icon(o):
+                if o["status"] == "refunded":
+                    return "↩️"
+                if (o.get("fulfillment") or "instant") == "manual":
+                    return {
+                        "awaiting_email": "✉️",
+                        "processing": "🕐",
+                        "delivered": "📬",
+                        "completed": "✅",
+                    }.get(o["status"], "🕐")
+                return "✅"
+
+            n = len(orders)
+            lines = [
+                "🧾  My Orders",
+                "━━━━━━━━━━━━━━━━━━━━",
+                "",
+                f"You have {n} order{'s' if n != 1 else ''}. "
+                "Tap one to view details 👇",
+            ]
             rows = []
             for o in orders:
                 sym = "$" if o["currency"] == "usd" else "₹"
-                ts = (o["created_at"] or "")[:16].replace("T", " ")
-                name = o.get("product_name") or "(removed product)"
-                is_manual = (o.get("fulfillment") or "instant") == "manual"
-                status = o["status"]
-                if is_manual:
-                    if status == "delivered":
-                        detail = "📬 Invite sent — check your email"
-                    elif status == "completed":
-                        detail = "✅ Received"
-                    elif status == "refunded":
-                        detail = "↩️ Refunded"
-                    else:
-                        detail = "🕐 Processing (invite within 1h)"
-                    lines.append(
-                        f"• {name} — {sym}{o['amount']:.2f}  ({ts})\n"
-                        f"  📧 {o.get('email') or '—'} · {detail}"
-                    )
-                    if status == "delivered":
-                        rows.append(
-                            [
-                                Button.inline(
-                                    f"📬 Got «{name[:18]}»? Confirm",
-                                    f"ogot:{o['id']}".encode(),
-                                ),
-                                Button.inline(
-                                    "🆘 Help", f"osupport:{o['id']}".encode()
-                                ),
-                            ]
+                name = (o.get("product_name") or "(removed)")[:22]
+                rows.append(
+                    [
+                        Button.inline(
+                            f"{_order_icon(o)} {name} · {sym}{o['amount']:.2f}",
+                            f"myord:{o['id']}".encode(),
                         )
-                else:
-                    content = o.get("content") or "(unavailable)"
-                    lines.append(
-                        f"• {name} — {sym}{o['amount']:.2f}  ({ts})\n  `{content}`"
-                    )
+                    ]
+                )
             rows.append([btn_shop()])
             rows.append([btn_back()])
             await show("\n".join(lines), rows)
@@ -4733,6 +4792,19 @@ async def on_callback(event):
             await show(*await build_admin_order_view(oid))
         except Exception:
             pass
+
+    elif data.startswith("myord:"):
+        # Buyer opens the detail view for one of their own orders.
+        try:
+            oid = int(data.split(":", 1)[1])
+        except ValueError:
+            await event.answer("Invalid order.", alert=True)
+            return
+        view = await build_user_order_view(oid, user_id)
+        if not view:
+            await event.answer("Order not found.", alert=True)
+            return
+        await show(*view)
 
     elif data.startswith("ogot:"):
         # Buyer confirms they received their manual invite.
